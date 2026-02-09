@@ -1,1 +1,6 @@
-worker: python elite_signals_bot.py
+python-telegram-bot==20.7
+yfinance==0.2.28
+pandas==2.1.1
+requests==2.31.0
+feedparser==6.0.10
+openai==1.31.0
