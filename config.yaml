@@ -1,0 +1,65 @@
+# ---------------- Tickers & Watchlist ----------------
+stocks:
+  # S&P 500 subset example; you can expand to full S&P 500 CSV
+  - ticker: AAPL
+    alert_threshold: 0.02
+  - ticker: MSFT
+    alert_threshold: 0.02
+  - ticker: AMZN
+    alert_threshold: 0.015
+  - ticker: TSLA
+    alert_threshold: 0.03
+  - ticker: GOOG
+    alert_threshold: 0.02
+  - ticker: NVDA
+    alert_threshold: 0.02
+  - ticker: META
+    alert_threshold: 0.025
+
+forex_pairs:
+  - pair: EURUSD
+    alert_threshold: 0.001
+  - pair: GBPUSD
+    alert_threshold: 0.0015
+  - pair: USDJPY
+    alert_threshold: 0.01
+  - pair: AUDUSD
+    alert_threshold: 0.0012
+
+commodities:
+  - pair: XAUUSD
+    alert_threshold: 0.005
+  - pair: XAGUSD
+    alert_threshold: 0.007
+  - pair: WTIUSD
+    alert_threshold: 0.01
+
+# ---------------- Options ----------------
+options:
+  unusual_volume_multiplier: 1.5
+  max_alerts_per_stock: 5
+
+# ---------------- News & Sentiment ----------------
+news_sources:
+  newsapi: true
+  rss_feeds:
+    - "https://www.reuters.com/rssFeed/technologyNews"
+    - "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+
+# ---------------- AI Analysis ----------------
+ai_settings:
+  style: aggressive       # aggressive / conservative / neutral
+  max_summary_length: 150
+  confidence_required: 50
+
+# ---------------- Telegram ----------------
+telegram:
+  bold_tickers: true
+  emojis: true
+  max_messages_per_update: 15
+
+# ---------------- Bot Behavior ----------------
+signal_interval: 900           # seconds
+max_stocks_per_update: 20
+max_forex_per_update: 10
+max_commodities_per_update: 5
