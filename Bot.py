@@ -15,7 +15,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL_ID", 0))
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-SIGNAL_INTERVAL = int(os.environ.get("SIGNAL_INTERVAL", 900))  # default 15 min
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY")
+SIGNAL_INTERVAL = int(os.environ.get("SIGNAL_INTERVAL", 900))
 
 # =======================
 # AI CLIENT
@@ -25,9 +26,9 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 # =======================
 # MARKETS CONFIG
 # =======================
-STOCKS = ["AAPL", "TSLA", "AMZN"]  # Add more tickers as needed
-FOREX_PAIRS = ["EURUSD", "GBPUSD", "XAUUSD"]
-OPTIONS_TICKERS = ["AAPL", "TSLA"]  # Can expand
+STOCKS = ["AAPL", "TSLA", "AMZN", "NVDA", "GOOGL"]  # expand as needed
+FOREX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
+OPTIONS_TICKERS = STOCKS  # Track options for all stocks
 
 # =======================
 # TELEGRAM SETUP
@@ -35,31 +36,30 @@ OPTIONS_TICKERS = ["AAPL", "TSLA"]  # Can expand
 telegram_bot = TelegramBot(token=TELEGRAM_BOT_TOKEN)
 telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+async def ai_signal_for_stock(ticker):
+    t = yf.Ticker(ticker)
+    price = t.info.get("regularMarketPrice")
+    # Simple options unusual activity
+    try:
+        options_chain = t.option_chain(t.options[0])
+        calls = options_chain.calls
+        puts = options_chain.puts
+        unusual_activity = f"Calls: {calls['volume'].sum()}, Puts: {puts['volume'].sum()}"
+    except:
+        unusual_activity = "No options data"
+    prompt = (
+        f"Generate Buy/Sell/Hold signal for {ticker} at {price} USD.\n"
+        f"Include confidence %, reasoning, and options flow summary: {unusual_activity}"
+    )
+    response = openai_client.responses.create(model="gpt-4.1-mini", input=prompt)
+    return f"{ticker}: {price}\nSignal: {response.output[0].content[0].text}"
+
 async def handle_stock(update, context: ContextTypes.DEFAULT_TYPE):
     ticker = context.args[0].upper() if context.args else "AAPL"
-    price = yf.Ticker(ticker).info.get("regularMarketPrice")
-    ai_response = openai_client.responses.create(
-        model="gpt-4.1-mini",
-        input=f"Generate a Buy/Sell/Hold signal for {ticker} at price {price}."
-    )
-    signal = ai_response.output[0].content[0].text
-    await update.message.reply_text(f"{ticker}: {price}\nSignal: {signal}")
+    signal = await ai_signal_for_stock(ticker)
+    await update.message.reply_text(signal)
 
-async def handle_forex(update, context: ContextTypes.DEFAULT_TYPE):
-    pair = context.args[0].upper() if context.args else "EURUSD"
-    base, quote = pair[:3], pair[3:]
-    r = requests.get(f"https://open.er-api.com/v6/latest/{base}").json()
-    rate = r["rates"].get(quote, "N/A")
-    ai_response = openai_client.responses.create(
-        model="gpt-4.1-mini",
-        input=f"Generate a Buy/Sell/Hold signal for {pair} at rate {rate}."
-    )
-    signal = ai_response.output[0].content[0].text
-    await update.message.reply_text(f"{pair}: {rate}\nSignal: {signal}")
-
-# Add handlers
 telegram_app.add_handler(CommandHandler("stock", handle_stock))
-telegram_app.add_handler(CommandHandler("forex", handle_forex))
 
 # =======================
 # DISCORD SETUP
@@ -68,7 +68,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 discord_client = discord.Client(intents=intents)
 
-async def discord_auto_signals():
+async def auto_signals():
     await discord_client.wait_until_ready()
     channel = discord_client.get_channel(DISCORD_CHANNEL_ID)
     while True:
@@ -76,14 +76,11 @@ async def discord_auto_signals():
 
         # Stocks
         for s in STOCKS:
-            t = yf.Ticker(s)
-            price = t.info.get("regularMarketPrice")
-            ai_response = openai_client.responses.create(
-                model="gpt-4.1-mini",
-                input=f"Generate a Buy/Sell/Hold signal for {s} at price {price}."
-            )
-            signal = ai_response.output[0].content[0].text
-            messages.append(f"{s}: {price}\nSignal: {signal}")
+            try:
+                msg = await ai_signal_for_stock(s)
+                messages.append(msg)
+            except Exception as e:
+                messages.append(f"{s}: Error fetching signal - {e}")
 
         # Forex & Commodities
         for f in FOREX_PAIRS:
@@ -93,19 +90,14 @@ async def discord_auto_signals():
                 rate = r["rates"].get(quote, "N/A")
             except:
                 rate = "N/A"
-            ai_response = openai_client.responses.create(
-                model="gpt-4.1-mini",
-                input=f"Generate a Buy/Sell/Hold signal for {f} at rate {rate}."
-            )
-            signal = ai_response.output[0].content[0].text
-            messages.append(f"{f}: {rate}\nSignal: {signal}")
+            prompt = f"Generate Buy/Sell/Hold signal for {f} at rate {rate}, include reasoning and confidence %."
+            response = openai_client.responses.create(model="gpt-4.1-mini", input=prompt)
+            msg = f"{f}: {rate}\nSignal: {response.output[0].content[0].text}"
+            messages.append(msg)
 
-        # Send to Discord
+        # Send to Discord & Telegram
         for m in messages:
             await channel.send(m)
-
-        # Send to Telegram
-        for m in messages:
             await telegram_bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=m)
 
         await asyncio.sleep(SIGNAL_INTERVAL)
@@ -114,14 +106,13 @@ async def discord_auto_signals():
 # MAIN
 # =======================
 async def main():
-    # Start Telegram polling
+    # Telegram polling
     asyncio.create_task(telegram_app.run_polling())
 
-    # Start Discord auto signals
-    asyncio.create_task(discord_auto_signals())
+    # Auto signals
+    asyncio.create_task(auto_signals())
 
-    # Start Discord client
+    # Discord client
     await discord_client.start(DISCORD_BOT_TOKEN)
 
-# Run everything
 asyncio.run(main())
